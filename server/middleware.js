@@ -2,15 +2,17 @@ const Cache = require('./models/cache');
 
 
 function setCacheID(req, res, next) {
-  if (req.method === 'POST' && req.body.id) {
+  const PutOrPost = req.method === 'POST' || req.method === 'PUT';
+  if (PutOrPost && req.body.id) {
     req.cacheID = req.body.id;
-  } else if (req.method === 'POST') {
+  } else if (PutOrPost) {
     res.status(404).send({ error: 'Missing form id value from data', message: 'id is required in body' });
   } else if (!req.params.id) {
     res.status(404).send({ error: 'Missing url parameter ', message: 'id is required in url' });
   } else {
     req.cacheID = req.params.id;
   }
+  console.log('CACHE MISS');
   return next();
 }
 
@@ -25,8 +27,7 @@ function createItem(req, res, next) {
 
 function updateItem(req, res, next) {
   const { id, ...rest } = req.body;
-  Object.assign(req.cache, rest);
-  return req.cache.save((err, doc) => {
+  Cache.findByIdAndUpdate(id, rest, { upsert: true }, (err, doc) => {
     if (err) { return res.status(500).send({ error: true, message: err.message }); }
     req.cache = doc;
     return next();
@@ -36,16 +37,15 @@ function updateItem(req, res, next) {
 // Get or create cache item
 function getCacheItem(req, res, next) {
   if (!req.cacheID) { next(); }
+
+  const cb = (err, doc) => {
+    if (doc) { req.cache = doc; }
+    return next(err);
+  };
+
   return Cache.findById(req.cacheID, (err, doc) => {
-    if (err) {
-      return next(err);
-    }
-    req.cache = doc && doc.ttl < Date.now() ? doc : Cache.create();
-    return req.cache.save((erro, cacheDoc) => {
-      if (err) { return next(erro); }
-      req.cache = cacheDoc;
-      return next();
-    });
+    if (err) { return next(err); }
+    return doc && doc.ttl < new Date().toJSON() ? doc.save(cb) : Cache.create({}, cb);
   });
 }
 
